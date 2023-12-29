@@ -16,9 +16,5 @@ begin
   Application.MainFormOnTaskbar := True;
   Application.CreateForm(TMsPaint, MsPaint);
   Application.CreateForm(TMenuPopup, MenuPopup);
-  Application.CreateForm(TFullScreen, FullScreen);
-  Application.CreateForm(TThumbnail, Thumbnail);
-  Application.CreateForm(TSave, Save);
-  Application.CreateForm(TProperties, Properties);
   Application.Run;
 end.

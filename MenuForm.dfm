@@ -1674,8 +1674,6 @@ object MenuPopup: TMenuPopup
           ParentBackground = False
           ShowCaption = False
           TabOrder = 2
-          ExplicitLeft = 1
-          ExplicitTop = -1
           object Label14: TLabel
             Left = 54
             Top = 133
@@ -2602,9 +2600,8 @@ object MenuPopup: TMenuPopup
         ParentBiDiMode = False
         OnClick = MenuItemClick
         OnMouseEnter = SpeedButton2MouseEnter
-        ExplicitLeft = 16
-        ExplicitTop = 192
-        ExplicitWidth = 269
+        ExplicitLeft = -4
+        ExplicitTop = 39
       end
       object SpeedButton3: TSpeedButton
         Tag = 3

@@ -442,7 +442,7 @@ type
 
     // Painting
     function GetSizeRect(ID: integer; Inflate: integer = 0): TRect;
-    procedure DrawShapeCanvas(Canvas: TCanvas; ARect: TRect; Index: integer);
+    procedure DrawShapeCanvas(Canvas: TCanvas; ARect: TRect; Index: integer; Finale: boolean = false);
     procedure PastePicture(Picture: TBitMap; Location: TPoint);
     procedure DrawStolen(Canvas: TCanvas; ARect: TRect);
 
@@ -486,6 +486,7 @@ type
 
     // Selection
     function MouseOverSelection: boolean;
+    function SelectionSupportsMoving: boolean;
     procedure FinishSelection(CloseMode: TCloseMode = TCloseMode.Succeed);
 
     procedure StealSelectionZone;
@@ -631,6 +632,8 @@ var
 
   CornerStart: TCornerPos;
   CornerEnd: TCornerPos;
+  DrawingPoints: TPoints;
+  PointIndex: integer = -1;
 
   StartedMoving: boolean;
   SizePoint: integer = -1;
@@ -652,6 +655,9 @@ var
 
   DownCanvas: TPoint;
   DownImage: TPoint;
+
+  LastDownCanvas: TPoint;
+  LastDownImage: TPoint;
 
   PositionCanvas: TPoint;
   PositionImage: TPoint;
@@ -734,11 +740,15 @@ begin
       if CloseMode = TCloseMode.Succeed then
         begin
           Image.Canvas.Pen.Width := ShapePen;
-          DrawShapeCanvas(Image.Canvas, SelectionImage, ShapeID);
+          DrawShapeCanvas(Image.Canvas, SelectionImage, ShapeID, true);
 
           // Update Changed
           UpdateCanvasDrawn;
         end;
+
+      // Reset Values
+      DrawingPoints := [];
+      PointIndex := -1;
     end;
   end;
 
@@ -861,13 +871,14 @@ begin
           // Fill Extended Zones
           with Image.Canvas do
             begin
+              Pen.Style := psClear;
               Brush.Style := bsSolid;
               Brush.Color := SecondaryColor;
 
-              ARect := Rect(PrevWidth + 1, 0, AWidth, AHeight);
+              ARect := Rect(PrevWidth, 0, AWidth, AHeight);
               FillRect(ARect);
 
-              ARect := Rect(0, PrevHeight + 1, AWidth, AHeight);
+              ARect := Rect(0, PrevHeight, AWidth, AHeight);
               FillRect(ARect);
             end;
         end;
@@ -921,10 +932,15 @@ procedure TMsPaint.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
   if ChangesUnsaved then
     begin
-      Save.PrepareDialog(FileName);
-      case Save.ShowModal of
-        mrYes: SaveFileOptional();
-        mrCancel: CanClose := false;
+      Save := TSave.Create(Self);
+      try
+        Save.PrepareDialog(FileName);
+        case Save.ShowModal of
+          mrYes: SaveFileOptional();
+          mrCancel: CanClose := false;
+        end;
+      finally
+        Save.Free;
       end;
     end;
 
@@ -1142,8 +1158,8 @@ begin
   DotsSize.Show;
   DotsSize.Left := CanvasHolder.Left;
   DotsSize.Top := CanvasHolder.Top;
-  DotsSize.Width := Image.Width + 4;
-  DotsSize.Height := Image.Height + 4;
+  DotsSize.Width := round(Image.Width * Scale) + 4;
+  DotsSize.Height := round(Image.Height * Scale) + 4;
 
   SizePreview.Enabled := true;
   SizePreview.Tag := TShape(Sender).Tag;
@@ -1208,6 +1224,8 @@ begin
 end;
 
 procedure TMsPaint.LoadFileOptional;
+var
+  I: integer;
 begin
   if OpenPictureDialog1.Execute then
     begin
@@ -1217,6 +1235,10 @@ begin
       LoadFile;
 
       // Recent
+      I := RecentFiles.IndexOf(FileName);
+      if I <> -1 then
+        RecentFiles.Delete(I);
+
       RecentFiles.Add(FileName);
 
       while RecentFiles.Count > 20 do
@@ -1734,6 +1756,10 @@ begin
 
   // Move Also
   DrawBoxMouseMove(Sender, Shift, X, Y);
+
+  // Last
+  LastDownImage := DownImage;
+  LastDownCanvas := DownCanvas;
 end;
 
 procedure TMsPaint.DrawBoxMouseLeave(Sender: TObject);
@@ -1855,6 +1881,21 @@ begin
                     end;
                 end;
 
+              // Custom Settings
+              if Tool = TToolType.Shape then
+                begin
+                  case ShapeID of
+                    2: begin
+                      DrawingPoints := [];
+                      PointIndex := -1;
+                    end;
+                    6: begin
+                      DrawingPoints := [DownCanvas, PositionCanvas];
+                      PointIndex := 1;
+                    end;
+                  end;
+                end;
+
               // Free-Form
               if (SelectionType = TSelectionType.FreeForm) and MouseOnCanvas then
                 begin
@@ -1885,7 +1926,7 @@ begin
 
             TSelectionMode.Exists:
             begin
-              if (SizePoint <> -1) or MouseOverSelection then
+              if ((SizePoint <> -1) or MouseOverSelection) and SelectionSupportsMoving then
                 // Alter
                 begin
                   if not StartedMoving then
@@ -1946,7 +1987,64 @@ begin
               else
                 // Finish
                 begin
-                  FinishSelection;
+                  case Tool of
+                    TToolType.Shape:
+                      case ShapeID of
+                        2: begin
+                          if PointIndex <> -1 then
+                            DrawingPoints[PointIndex] := PositionCanvas
+                          else
+                            begin
+                              if Length(DrawingPoints) <= 1 then
+                              // New point
+                              begin
+                                PointIndex := Length(DrawingPoints);
+                                SetLength(DrawingPoints, PointIndex+1);
+                                DrawingPoints[PointIndex] := PositionCanvas;
+                              end
+                                else
+                              // Done
+                              FinishSelection;
+                            end;
+                        end;
+                        6: begin
+                          if PointIndex = -1 then
+                            begin
+                              if (DownCanvas = LastDownCanvas) or (PositionCanvas = DrawingPoints[High(DrawingPoints)]) then
+                                // End Selection (dbl click)
+                                FinishSelection
+                              else
+                                begin
+                                // Move previous point
+                                  for I := 0 to High(DrawingPoints) do begin
+                                      ARect := TRect.Create(DrawingPoints[I]);
+                                      ARect.Inflate(13, 13);
+
+                                      if ARect.Contains(PositionCanvas) then
+                                        begin
+                                          PointIndex := I;
+                                          Break;
+                                        end;
+                                    end;
+
+                                  // New point (index still -1)
+                                  if PointIndex = -1 then
+                                  begin
+                                    PointIndex := Length(DrawingPoints);
+                                    SetLength(DrawingPoints, PointIndex+1);
+                                    DrawingPoints[PointIndex] := PositionCanvas;
+                                  end;
+                                end;
+                            end
+                          else
+                            DrawingPoints[PointIndex] := PositionCanvas;
+                        end;
+
+                        else FinishSelection;
+                      end;
+
+                    else FinishSelection;
+                  end;
                 end;
             end;
           end;
@@ -2004,7 +2102,7 @@ begin
               GDICircle(ARect, GetRGB(DrawColor, 100).MakeGDIBrush, nil);
             end;
             3: begin
-              GDILine(Line(PReviousImage, PositionImage), GetRGB(DrawColor, 200).MakeGDIPen(BrushSize));
+              GDILine(MakeLine(PReviousImage, PositionImage), GetRGB(DrawColor, 200).MakeGDIPen(BrushSize));
             end;
             4: begin
               ARect := TRect.Create(PositionImage);
@@ -2062,6 +2160,21 @@ begin
                 SizePoint := I;
                 Break;
               end;
+
+          if Tool = TToolType.Shape then
+            case ShapeID of
+              6: for I := 0 to High(DrawingPoints) do
+                begin
+                  ARect := TRect.Create(DrawingPoints[I]);
+                  ARect.Inflate(13, 13);
+
+                  if ARect.Contains(PositionCanvas) then
+                    begin
+                      DrawBox.Cursor := crSizeAll;
+                      Break;
+                    end;
+                end;
+            end;
         end;
     end;
 
@@ -2172,6 +2285,17 @@ begin
           UpdateCanvas;
         end;
 
+      // Always on TM
+      case Tool of
+        TToolType.Shape: begin
+          case ShapeID of
+            2, 6: begin
+              PointIndex := -1;
+            end;
+          end;
+        end;
+      end;
+
       // Invalid
       if SelectMode = TSelectionMode.None then
         Label8.Caption := '';
@@ -2182,8 +2306,8 @@ begin
         TMouseButton.mbLeft: begin
           TrackBar1.Position := TrackBar1.Position * 2;
 
-          Scrollbox1.HorzScrollBar.Position := ZoomRect.CenterPoint.X;
-          Scrollbox1.VertScrollBar.Position := ZoomRect.CenterPoint.Y;
+          Scrollbox1.HorzScrollBar.Position := EnsureRange(ZoomRect.CenterPoint.X div 2, 0, Scrollbox1.HorzScrollBar.Range);
+          Scrollbox1.VertScrollBar.Position := EnsureRange(ZoomRect.CenterPoint.Y div 2, 0, Scrollbox1.VertScrollBar.Range);
         end;
         TMouseButton.mbRight: TrackBar1.Position := TrackBar1.Position div 2;
       end;
@@ -2275,11 +2399,11 @@ begin
                     if ShapeID = 1 then
                       AllowInvertedSelect := false;
                   end;
-                  
 
                 // Inverted Selection color
                 if AllowInvertedSelect and not SelectionCanvas.IsEmpty
-                  and ((SelectionType = TSelectionType.Rectangular) or (Tool <> TToolType.Select)) then
+                  and ((SelectionType = TSelectionType.Rectangular) or (Tool <> TToolType.Select))
+                  and SelectionSupportsMoving then
                   with TBitMap.Create do
                     begin
                       SetSize(SelectionCanvas.Width, SelectionCanvas.Height);
@@ -2333,8 +2457,9 @@ begin
                     Brush.Style := bsSolid;
                     Brush.Color := TColors.White;
 
-                    if (Tool = TToolType.Shape) and (ShapeID = 1) then
-                      begin
+                    if (Tool = TToolType.Shape) then
+                    case ShapeID of
+                      1: begin
                         if (CornerStart = TCornerPos.TopLeft) or (CornerEnd = TCornerPos.TopLeft) then
                           Rectangle(GetSizeRect(1));
                         if (CornerStart = TCornerPos.TopRight) or (CornerEnd = TCornerPos.TopRight) then
@@ -2343,12 +2468,21 @@ begin
                           Rectangle(GetSizeRect(6));
                         if (CornerStart = TCornerPos.BottomRight) or (CornerEnd = TCornerPos.BottomRight) then
                           Rectangle(GetSizeRect(8));
-                      end
-                    else
-                      for I := 1 to 8 do
+                      end;
+
+                      2: ;
+
+                      6: for I := 0 to High(DrawingPoints) do
                         begin
-                          Rectangle(GetSizeRect(I));
-                        end;
+                          ARect := TRect.Create(DrawingPoints[I]);
+                          ARect.Inflate(3, 3);
+
+                          Rectangle( ARect );
+                        end
+
+                      else for I := 1 to 8 do
+                        Rectangle(GetSizeRect(I));
+                    end;
                   end;
               end;
           end;
@@ -2391,6 +2525,33 @@ begin
       end;
     end;
 
+  // Sizing
+  if SizePreview.Enabled then
+    begin
+      DrawBox.Canvas.TextOut(10, 10, 'drawin');
+      with TBitMap.Create do
+        begin
+          SetSize(DotsSize.Width-4, DotsSize.Height-4);
+
+          with Canvas do
+            begin
+              Brush.Color := clBlack;
+              FillRect(ClipRect);
+              Pen.Color := clWhite;
+              Pen.Width := 1;
+              Pen.Style := psDot;
+
+              ARect := ClipRect;
+              ARect.Inflate(1, 1, 0, 0);
+
+              Brush.Style := bsClear;
+              Rectangle(ARect);
+            end;
+
+          StretchInvertedMask(Canvas, DrawBox.Canvas, DotsSize.ClientRect);
+        end;
+    end;
+
   // Gridlines
   if CheckBox2.Checked then
     with DrawBox.Canvas do
@@ -2415,7 +2576,7 @@ begin
 end;
 
 procedure TMsPaint.DrawShapeCanvas(Canvas: TCanvas; ARect: TRect;
-  Index: integer);       
+  Index: integer; Finale: boolean);
 var
   APoints: TArray<TPoint>;
   I: integer;
@@ -2430,7 +2591,7 @@ begin
 
       P1 := GetPoint(ARect, CornerStart);
       P2 := GetPoint(ARect, CornerEnd);
-      
+
       if SpeedButton72.Down then
         Pen.Style := psSolid
       else
@@ -2439,14 +2600,17 @@ begin
         Brush.Style := bsSolid
       else
         Brush.Style := bsClear;
-        
+
       case ShapeID of
         1: begin
           MoveTo(P1.X, P1.Y);
           LineTo(P2.X, P2.Y);
         end;
         2: begin
-          // ???
+          if Length(DrawingPoints) = 0 then
+            Line(P1, P2)
+          else
+            PolyBezier([P1, DrawingPoints[Low(DrawingPoints)], DrawingPoints[High(DrawingPoints)], P2]);
         end;
         3: begin
           Ellipse(ARect);
@@ -2458,7 +2622,16 @@ begin
           RoundRect(ARect, 30, 30);
         end;
         6: begin
-          // ???
+          if Finale then
+            Polygon(DrawingPoints)
+          else
+            if Length(DrawingPoints) > 0 then
+            
+            begin
+              MoveTo( DrawingPoints[0] );
+              for I := 1 to High(DrawingPoints) do
+                LineTo( DrawingPoints[I] );
+            end;
         end;
         7, 8: begin
           SetLength(APoints, 3);
@@ -2560,7 +2733,6 @@ begin
           if (Index = 13) and (not ARect.IsEmpty) then
             for I := 0 to High(APoints) do
               APoints[I] := RotatePointAroundPoint(APoints[I], Center, 180);
-
 
           Polygon(APoints);
         end;
@@ -2743,6 +2915,7 @@ end;
 procedure TMsPaint.SaveFileOptional(SaveAs: boolean);
 var
   Ext: string;
+  I: integer;
 begin
   // Finish editing
   FinishSelection();
@@ -2768,6 +2941,13 @@ begin
 
             FileName := FileName + '.' + Ext;
           end;
+
+        // Add to recents
+        I := RecentFiles.IndexOf(FileName);
+        if I <> -1 then
+          RecentFiles.Delete(I);
+
+        RecentFiles.Add(FileName);
 
         // Save
         SaveFile;
@@ -2866,11 +3046,11 @@ end;
 
 procedure TMsPaint.ShapeSelect(Sender: TObject);
 begin
-  // Buttons
+   // Buttons
   ClearAllSelect(TSpeedButton(Sender));
 
   // Finish previous or Switch shape
-  if Tool <> TToolType.Shape then
+  //if Tool <> TToolType.Shape then
     FinishSelection();
 
   // Tool
@@ -2896,6 +3076,9 @@ begin
     DotsSize.Width := AMouse.X;
   if SizePreview.Tag <> 1 then
     DotsSize.Height := AMouse.Y;
+
+  // Over dots
+  DrawBox.Repaint;
 
   // Text
   Label10.Caption := ConvertUnit(round((DotsSize.Width-4) * ReverseScale)) + ' x ' + ConvertUnit(round((DotsSize.Height-4)*ReverseScale)) + GetUnit;
@@ -2963,8 +3146,13 @@ end;
 
 procedure TMsPaint.SpeedButton17Click(Sender: TObject);
 begin
-  Properties.LoadImageData;
-  Properties.ShowModal;
+  Properties := TProperties.Create(Self);
+  try
+    Properties.LoadImageData;
+    Properties.ShowModal;
+  finally
+    Properties.Free;
+  end;
 end;
 
 procedure TMsPaint.SpeedButton22Click(Sender: TObject);
@@ -3014,6 +3202,10 @@ end;
 
 procedure TMsPaint.SpeedButton3Click(Sender: TObject);
 begin
+  if Fullscreen = nil then
+    Fullscreen := TFullscreen.Create(Application);
+
+
   Fullscreen.Preview.Picture.Assign(Image);
 
   FullScreen.Show;
@@ -3021,6 +3213,8 @@ end;
 
 procedure TMsPaint.SpeedButton4Click(Sender: TObject);
 begin
+  if Thumbnail = nil then
+    Thumbnail := TThumbnail.Create(Application);
   Thumbnail.Preview.Picture.Assign(Image);
 
   Thumbnail.Preview.Picture.Graphic := Image;
@@ -3245,6 +3439,21 @@ begin
   HideMiniPanels;
 end;
 
+function TMsPaint.SelectionSupportsMoving: boolean;
+begin
+  case Tool of
+    TToolType.Shape:
+      case ShapeID of
+        1: Result := false;
+        2: Result := {Length(DrawingPoints) = 2} false;
+        6: Result := false;
+        else Result := true;
+      end;
+
+    else Result := true;
+  end;
+end;
+
 procedure TMsPaint.SpeedButton9Click(Sender: TObject);
 begin
   ActionPasteClipboard.Execute;
@@ -3254,7 +3463,6 @@ procedure TMsPaint.StealSelectionZone;
 var
   I: integer;
   ARect: TRect;
-  Pixel: PRGBQuad;
 begin
   if SelectionType = TSelectionType.Rectangular then
     begin
@@ -3501,10 +3709,16 @@ end;
 
 procedure TMsPaint.UpdateSizing;
 var
+  NewSize: TPoint;
   Anew: integer;
 begin
-  CanvasHolder.Width := round(Image.Width * Scale + 4);
-  CanvasHolder.Height := round(Image.Height * Scale + 4);
+  NewSize.X := round(Image.Width * Scale + 4);
+  NewSize.Y := round(Image.Height * Scale + 4);
+  if (NewSize.X <> CanvasHolder.Width) or (NewSize.Y <> CanvasHolder.Height) then
+    begin
+      CanvasHolder.Width := NewSize.X;
+      CanvasHolder.Height := NewSize.Y;
+    end;
 
   // Text
   Label10.Caption := ConvertUnit(Image.Width) + ' x ' + ConvertUnit(Image.Height) + GetUnit;
@@ -3541,7 +3755,8 @@ begin
         CanvasHolder.Left := 5;
     end
       else
-        CanvasHolder.Left := 5;
+        if (CanvasHolder.Left <> 5) and (CanvasHolder.Width < ScrollBox1.Width) then
+          CanvasHolder.Left := 5;
 end;
 
 procedure TMsPaint.UserSettings(Load: boolean);
@@ -3963,7 +4178,7 @@ end;
 
 procedure TMsPaint.CButton1Click(Sender: TObject);
 begin
-  ShellRun('https://go.microsoft.com/fwlink/?LinkID=2004229', false);
+  ShellRun('https://www.codrutsoft.com/', false);
 end;
 
 procedure TMsPaint.CButton2Click(Sender: TObject);

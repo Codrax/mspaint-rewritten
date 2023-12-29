@@ -12,6 +12,7 @@ object Thumbnail: TThumbnail
   Font.Height = -12
   Font.Name = 'Segoe UI'
   Font.Style = []
+  OnClose = FormClose
   TextHeight = 15
   object Preview: CImage
     Left = 0

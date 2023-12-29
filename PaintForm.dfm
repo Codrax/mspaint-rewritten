@@ -227,7 +227,9 @@ object MsPaint: TMsPaint
       Top = 0
       Width = 24
       Height = 24
+      Hint = 'Help'
       OnClick = CButton1Click
+      ShowHint = True
       TabStop = False
       TabOrder = 0
       Align = alRight

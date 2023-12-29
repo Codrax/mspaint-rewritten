@@ -11,6 +11,7 @@ type
     Preview: CImage;
     procedure FormKeyPress(Sender: TObject; var Key: Char);
     procedure HideClick(Sender: TObject);
+    procedure FormClose(Sender: TObject; var Action: TCloseAction);
   private
     { Private declarations }
   public
@@ -24,14 +25,19 @@ implementation
 
 {$R *.dfm}
 
+procedure TFullScreen.FormClose(Sender: TObject; var Action: TCloseAction);
+begin
+  FreeAndNil( Fullscreen );
+end;
+
 procedure TFullScreen.FormKeyPress(Sender: TObject; var Key: Char);
 begin
-  Hide;
+  Close;
 end;
 
 procedure TFullScreen.HideClick(Sender: TObject);
 begin
-  Hide;
+  Close;
 end;
 
 end.

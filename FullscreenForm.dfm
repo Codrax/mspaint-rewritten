@@ -13,6 +13,7 @@ object FullScreen: TFullScreen
   Font.Style = []
   WindowState = wsMaximized
   OnClick = HideClick
+  OnClose = FormClose
   OnKeyPress = FormKeyPress
   TextHeight = 15
   object Preview: CImage

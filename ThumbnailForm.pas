@@ -9,6 +9,7 @@ uses
 type
   TThumbnail = class(TForm)
     Preview: CImage;
+    procedure FormClose(Sender: TObject; var Action: TCloseAction);
   private
     { Private declarations }
   public
@@ -21,5 +22,10 @@ var
 implementation
 
 {$R *.dfm}
+
+procedure TThumbnail.FormClose(Sender: TObject; var Action: TCloseAction);
+begin
+  FreeAndNil( Thumbnail );
+end;
 
 end.

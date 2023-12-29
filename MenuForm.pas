@@ -324,8 +324,13 @@ begin
     7: WallpaperTypeSelect(SpeedButton11);
     8: begin
       SlowHide;
-      Properties.LoadImageData;
-      Properties.ShowModal;
+      Properties := TProperties.Create(Self);
+      try
+        Properties.LoadImageData;
+        Properties.ShowModal;
+      finally
+        Properties.Free;
+      end;
     end;
     9: Shellapi.ShellAbout(Handle, 'Paint', '', Application.Icon.Handle);
     10: Application.MainForm.Close;
