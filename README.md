@@ -2,11 +2,15 @@
  The Windows 10 version Microsoft Paint rewritten in Delphi
 
 ## Features
-All features included in the Windows 10 version of mspaint,
-with a few exceptions, I forgot to add the bending line and the polygon.
+All features included in the Windows 10 version of mspaint
 
 Minor improvements:
 - Better pen size selector
+- Better fine zoom, from 10% to 1000%
+
+Missing detalies:
+- Resizing dots don't draw over canvas
+- Bending line and polygon don't work
 
 ## Dependencies
 -Units in the dependencies folder
