@@ -429,6 +429,8 @@ type
       Shift: TShiftState);
     procedure FormKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure AnimateKeysTimer(Sender: TObject);
+    procedure ScrollBox1Click(Sender: TObject);
+    procedure CanvasHolderClick(Sender: TObject);
   private
     { Private declarations }
     procedure SelectPanel(Index: integer);
@@ -2013,7 +2015,7 @@ begin
                         6: begin
                           if PointIndex = -1 then
                             begin
-                              if (DownCanvas = LastDownCanvas) or (PositionImage = DrawingPoints[High(DrawingPoints)]) then
+                              if (DownCanvas = LastDownCanvas) or ((length(DrawingPoints) > 0) and (PositionImage = DrawingPoints[High(DrawingPoints)])) then
                                 // End Selection (dbl click)
                                 FinishSelection
                               else
@@ -2982,6 +2984,11 @@ begin
   Result.Y := round(Result.Y * Scale);
 end;
 
+procedure TMsPaint.ScrollBox1Click(Sender: TObject);
+begin
+  HideMiniPanels;
+end;
+
 procedure TMsPaint.ScrollBox1MouseMove(Sender: TObject; Shift: TShiftState; X,
   Y: Integer);
 begin
@@ -3074,12 +3081,12 @@ end;
 
 procedure TMsPaint.ShapeSelect(Sender: TObject);
 begin
-   // Buttons
+  // Buttons
   ClearAllSelect(TSpeedButton(Sender));
 
   // Finish previous or Switch shape
   //if Tool <> TToolType.Shape then
-    FinishSelection();
+  FinishSelection();
 
   // Tool
   ChangeTool(TToolType.Shape);
@@ -4190,6 +4197,11 @@ begin
             end;
         end;
     end;
+end;
+
+procedure TMsPaint.CanvasHolderClick(Sender: TObject);
+begin
+  HideMiniPanels;
 end;
 
 procedure TMsPaint.CanvasHolderMouseMove(Sender: TObject; Shift: TShiftState; X,

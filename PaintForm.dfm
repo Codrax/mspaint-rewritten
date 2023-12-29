@@ -15440,6 +15440,7 @@ object MsPaint: TMsPaint
       Color = 15128526
       ParentColor = False
       TabOrder = 0
+      OnClick = ScrollBox1Click
       OnMouseMove = ScrollBox1MouseMove
       OnMouseWheel = ScrollBox1MouseWheel
       object CornerSize: TShape
@@ -15495,6 +15496,7 @@ object MsPaint: TMsPaint
         ParentDoubleBuffered = False
         ShowCaption = False
         TabOrder = 0
+        OnClick = CanvasHolderClick
         OnMouseMove = CanvasHolderMouseMove
         object DrawBox: TPaintBox
           AlignWithMargins = True
