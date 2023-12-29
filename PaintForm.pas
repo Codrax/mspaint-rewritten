@@ -446,6 +446,9 @@ type
     procedure PastePicture(Picture: TBitMap; Location: TPoint);
     procedure DrawStolen(Canvas: TCanvas; ARect: TRect);
 
+    // Scale
+    function ScaleToCanvas(P: TPoint): TPoint;
+
     // File
     procedure NewDocument;
 
@@ -1890,7 +1893,7 @@ begin
                       PointIndex := -1;
                     end;
                     6: begin
-                      DrawingPoints := [DownCanvas, PositionCanvas];
+                      DrawingPoints := [DownImage, PositionImage];
                       PointIndex := 1;
                     end;
                   end;
@@ -1992,7 +1995,7 @@ begin
                       case ShapeID of
                         2: begin
                           if PointIndex <> -1 then
-                            DrawingPoints[PointIndex] := PositionCanvas
+                            DrawingPoints[PointIndex] := PositionImage
                           else
                             begin
                               if Length(DrawingPoints) <= 1 then
@@ -2000,7 +2003,7 @@ begin
                               begin
                                 PointIndex := Length(DrawingPoints);
                                 SetLength(DrawingPoints, PointIndex+1);
-                                DrawingPoints[PointIndex] := PositionCanvas;
+                                DrawingPoints[PointIndex] := PositionImage;
                               end
                                 else
                               // Done
@@ -2010,14 +2013,16 @@ begin
                         6: begin
                           if PointIndex = -1 then
                             begin
-                              if (DownCanvas = LastDownCanvas) or (PositionCanvas = DrawingPoints[High(DrawingPoints)]) then
+                              if (DownCanvas = LastDownCanvas) or (PositionImage = DrawingPoints[High(DrawingPoints)]) then
                                 // End Selection (dbl click)
                                 FinishSelection
                               else
                                 begin
-                                // Move previous point
+                                  Title.Caption := Length(DrawingPoints).ToString;
+                                  // Move previous point
                                   for I := 0 to High(DrawingPoints) do begin
-                                      ARect := TRect.Create(DrawingPoints[I]);
+                                      ARect := TRect.Create(ScaleToCanvas(DrawingPoints[I]));
+
                                       ARect.Inflate(13, 13);
 
                                       if ARect.Contains(PositionCanvas) then
@@ -2032,12 +2037,12 @@ begin
                                   begin
                                     PointIndex := Length(DrawingPoints);
                                     SetLength(DrawingPoints, PointIndex+1);
-                                    DrawingPoints[PointIndex] := PositionCanvas;
+                                    DrawingPoints[PointIndex] := PositionImage;
                                   end;
                                 end;
                             end
                           else
-                            DrawingPoints[PointIndex] := PositionCanvas;
+                            DrawingPoints[PointIndex] := PositionImage;
                         end;
 
                         else FinishSelection;
@@ -2165,7 +2170,7 @@ begin
             case ShapeID of
               6: for I := 0 to High(DrawingPoints) do
                 begin
-                  ARect := TRect.Create(DrawingPoints[I]);
+                  ARect := TRect.Create(ScaleToCanvas(DrawingPoints[I]));
                   ARect.Inflate(13, 13);
 
                   if ARect.Contains(PositionCanvas) then
@@ -2196,6 +2201,9 @@ procedure TMsPaint.DrawBoxMouseUp(Sender: TObject; Button: TMouseButton;
 var
   AHeight, AWidth: integer;
 begin
+  if Button = mbMiddle then
+    Exit;
+
   // Not down
   CanvasMouseDown := false;
 
@@ -2474,7 +2482,7 @@ begin
 
                       6: for I := 0 to High(DrawingPoints) do
                         begin
-                          ARect := TRect.Create(DrawingPoints[I]);
+                          ARect := TRect.Create(ScaleToCanvas(DrawingPoints[I]));
                           ARect.Inflate(3, 3);
 
                           Rectangle( ARect );
@@ -2583,11 +2591,24 @@ var
   AH, AW, SH, SW: integer;
   Center: TPoint;
   P1, P2: TPoint;
+
+  DrawSPoints: TPoints;
 begin
   with Canvas do
     begin
       Pen.Color := PrimaryColor;
       Brush.Color := SecondaryColor;
+
+      // Scaled Points
+      SetLength(DrawSPoints, Length(DrawingPoints));
+      if Finale then
+        DrawSPoints := DrawingPoints
+      else
+        for I := 0 to High(DrawSPoints) do
+          begin
+            DrawSPoints[I].X := round(DrawingPoints[I].X * Scale);
+            DrawSPoints[I].Y := round(DrawingPoints[I].Y * Scale);
+          end;
 
       P1 := GetPoint(ARect, CornerStart);
       P2 := GetPoint(ARect, CornerEnd);
@@ -2610,7 +2631,7 @@ begin
           if Length(DrawingPoints) = 0 then
             Line(P1, P2)
           else
-            PolyBezier([P1, DrawingPoints[Low(DrawingPoints)], DrawingPoints[High(DrawingPoints)], P2]);
+            PolyBezier([P1, DrawSPoints[Low(DrawSPoints)], DrawSPoints[High(DrawSPoints)], P2]);
         end;
         3: begin
           Ellipse(ARect);
@@ -2623,14 +2644,14 @@ begin
         end;
         6: begin
           if Finale then
-            Polygon(DrawingPoints)
+            Polygon(DrawSPoints)
           else
-            if Length(DrawingPoints) > 0 then
+            if Length(DrawSPoints) > 0 then
             
             begin
-              MoveTo( DrawingPoints[0] );
-              for I := 1 to High(DrawingPoints) do
-                LineTo( DrawingPoints[I] );
+              MoveTo( DrawSPoints[0] );
+              for I := 1 to High(DrawSPoints) do
+                LineTo( DrawSPoints[I] );
             end;
         end;
         7, 8: begin
@@ -2952,6 +2973,13 @@ begin
         // Save
         SaveFile;
       end;
+end;
+
+function TMsPaint.ScaleToCanvas(P: TPoint): TPoint;
+begin
+  Result := P;
+  Result.X := round(Result.X * Scale);
+  Result.Y := round(Result.Y * Scale);
 end;
 
 procedure TMsPaint.ScrollBox1MouseMove(Sender: TObject; Shift: TShiftState; X,
