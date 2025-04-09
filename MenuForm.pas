@@ -78,8 +78,6 @@ type
     { Private declarations }
     procedure SlowHide;
 
-    procedure CheckChanges;
-
     procedure LoadRecents;
   public
     { Public declarations }
@@ -99,18 +97,6 @@ uses
   PaintForm;
 
 {$R *.dfm}
-
-procedure TMenuPopup.CheckChanges;
-begin
-  if ChangesUnsaved then
-    begin
-      Save.PrepareDialog(FileName);
-      case Save.ShowModal of
-        mrYes: MsPaint.SaveFileOptional();
-        mrCancel: Abort;
-      end;
-    end;
-end;
 
 procedure TMenuPopup.FormCreate(Sender: TObject);
 begin
@@ -306,14 +292,16 @@ begin
   // Menu Click
   case TSpeedButton(Sender).Tag of
     1: begin
-      CheckChanges;
+      if not CheckSavedCanProceed then
+        Exit;
 
       MsPaint.NewDocument;
 
       Mspaint.UpdateSizing;
     end;
     2: begin
-      CheckChanges;
+      if not CheckSavedCanProceed then
+        Exit;
 
       MsPaint.LoadFileOptional;
     end;
@@ -344,7 +332,8 @@ var
   AName: string;
 begin
   // Select
-  CheckChanges;
+  if not CheckSavedCanProceed then
+    Exit;
 
   AName := RecentFiles[TSpeedButton(Sender).Tag];
 
@@ -355,7 +344,6 @@ begin
       FileName := AName;
       MsPaint.LoadFile;
       MsPaint.UpdateSizing;
-
 
       // Close
       SlowHide;

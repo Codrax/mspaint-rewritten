@@ -15,7 +15,7 @@ uses
   Thumbnailform, Vcl.ExtDlgs, SaveForm, UITypes, Cod.ColorUtils, Cod.StringUtils,
   Cod.Types, Cod.SysUtils, Vcl.Clipbrd, Cod.SysExtras, Cod.ByteUtils,
   Imaging.jpeg, Imaging.GIFImg, IniFiles, IOUtils, PropertiesForm,
-  Vcl.Menus, Math, Cod.Dialogs.PrintDlg;
+  Vcl.Menus, Math, Cod.Dialogs.PrintDlg, ShellAPI, Cod.FileDrop;
 
 type
   TToolType = (None, Select, Pencil, Fill, Text, Eraser, ColorPick, Zoom, Brush, Shape);
@@ -163,14 +163,8 @@ type
     SpeedButton26: TSpeedButton;
     ColorPicker: TPanel;
     Panel37: TPanel;
-    Label26: TLabel;
     SpeedButton27: TSpeedButton;
     SpeedButton28: TSpeedButton;
-    Panel38: TPanel;
-    Panel39: TPanel;
-    Panel40: TPanel;
-    SpeedButton33: TSpeedButton;
-    Label27: TLabel;
     Colors_Container: TPanel;
     Panel42: TPanel;
     SpeedButton8: TSpeedButton;
@@ -321,6 +315,8 @@ type
     SpeedButton104: TSpeedButton;
     ImageList3: TImageList;
     AnimateKeys: TTimer;
+    Action5: TAction;
+    Label27: TLabel;
     procedure FormCreate(Sender: TObject);
     procedure PaintBox2Paint(Sender: TObject);
     procedure ClickPB(Sender: TObject);
@@ -384,7 +380,6 @@ type
     procedure SpeedButton31Click(Sender: TObject);
     procedure SpeedButton32Click(Sender: TObject);
     procedure CButton1Click(Sender: TObject);
-    procedure SpeedButton33Click(Sender: TObject);
     procedure CheckBox4Click(Sender: TObject);
     procedure ShapeSelect(Sender: TObject);
     procedure ButtonPressRepaint(Sender: TObject);
@@ -431,15 +426,22 @@ type
     procedure AnimateKeysTimer(Sender: TObject);
     procedure ScrollBox1Click(Sender: TObject);
     procedure CanvasHolderClick(Sender: TObject);
+    procedure Action5Execute(Sender: TObject);
+    procedure FormShow(Sender: TObject);
   private
     { Private declarations }
     procedure SelectPanel(Index: integer);
+
+  protected
+    { Protected declarations }
+    procedure WMDropFiles(var Msg: TWMDropFiles); message WM_DROPFILES;
+
   public
     { Public declarations }
     procedure SaveFile;
     procedure LoadFile;
     procedure UpdateFileSize;
-    procedure SaveFileOptional(SaveAs: boolean = false);
+    function SaveFileOptional(SaveAs: boolean = false): boolean; // returns if SUCCEEDED
     procedure LoadFileOptional;
 
     // Painting
@@ -525,6 +527,10 @@ type
     procedure UpdateRulers;
   end;
 
+  // Dialogs
+  function CheckSavedCanProceed: boolean;
+
+  // Utils
   function GetCanvasDPI(Canvas: TCanvas): Integer;
   procedure RotateBitmap90Degrees(var Bitmap: TBitmap);
   procedure RotateBitmapNegative90Degrees(var Bitmap: TBitmap);
@@ -657,6 +663,7 @@ var
   MouseOnCanvas: boolean;
   CanvasMouseDown: boolean;
   DownButton: TMouseButton;
+  MouseOverSelectionWhenDown: boolean;
 
   DownCanvas: TPoint;
   DownImage: TPoint;
@@ -672,6 +679,27 @@ var
 implementation
 
 {$R *.dfm}
+
+function CheckSavedCanProceed: boolean;
+begin
+  Result := true;
+
+  // No changes
+  if not ChangesUnsaved then
+    Exit;
+
+  Save := TSave.Create(Application);
+  try
+    Save.PrepareDialog(FileName);
+    case Save.ShowModal of
+      mrYes: if not MsPaint.SaveFileOptional() then // save
+        Result := false;
+      mrCancel: Result := false;
+    end;
+  finally
+    Save.Free;
+  end;
+end;
 
 function GetCanvasDPI(Canvas: TCanvas): Integer;
 var
@@ -936,17 +964,9 @@ end;
 procedure TMsPaint.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
   if ChangesUnsaved then
-    begin
-      Save := TSave.Create(Self);
-      try
-        Save.PrepareDialog(FileName);
-        case Save.ShowModal of
-          mrYes: SaveFileOptional();
-          mrCancel: CanClose := false;
-        end;
-      finally
-        Save.Free;
-      end;
+    if not CheckSavedCanProceed then begin
+      CanClose := false;
+      Exit;
     end;
 
   // Settings
@@ -969,11 +989,11 @@ begin
 
   // Recent
   RecentFiles := TStringList.Create;
-  
+
   // Reset History
   ResetHistory;
 
-  AppData := GetPathInAppData('MsPaint', false);
+  AppData := GetPathInAppData('Paint', TAppDataType.Roaming, true);
 
   // Update
   UpdateSizing;
@@ -1022,9 +1042,11 @@ begin
   SpeedButton26.Caption := SpeedButton26.Caption + #13'▼';
   SpeedButton27.Caption := SpeedButton27.Caption + #13'1';
   SpeedButton28.Caption := SpeedButton28.Caption + #13'2';
-  SpeedButton33.Caption := SpeedButton33.Caption + #13'Paint 3D';
   SpeedButton63.Caption := SpeedButton63.Caption + #13'colors';
   SpeedButton103.Caption := SpeedButton103.Caption + #13'preview';
+
+  // Drag & drop
+  DragAcceptFiles(Self.Handle, true);
 end;
 
 procedure TMsPaint.FormKeyDown(Sender: TObject; var Key: Word;
@@ -1076,6 +1098,14 @@ procedure TMsPaint.FormKeyUp(Sender: TObject; var Key: Word;
   Shift: TShiftState);
 begin
   AnimateKeys.Enabled := false;
+end;
+
+procedure TMsPaint.FormShow(Sender: TObject);
+begin
+  // Fix display bug
+  CustomTitleBar.Enabled := not CustomTitleBar.Enabled;
+  Application.ProcessMessages;
+  CustomTitleBar.Enabled := not CustomTitleBar.Enabled;
 end;
 
 function TMsPaint.GetColorTag(Tag: integer): TColor;
@@ -1699,6 +1729,7 @@ begin
   // Down
   CanvasMouseDown := true;
   DownButton := Button;
+  MouseOverSelectionWhenDown := MouseOverSelection;
 
   DownCanvas := Point(X, Y);
   DownImage := Point(round(X/Scale), round(Y/Scale));
@@ -1931,7 +1962,7 @@ begin
 
             TSelectionMode.Exists:
             begin
-              if ((SizePoint <> -1) or MouseOverSelection) and SelectionSupportsMoving then
+              if ((SizePoint <> -1) or MouseOverSelection or (CanvasMouseDown and MouseOverSelectionWhenDown)) and SelectionSupportsMoving then
                 // Alter
                 begin
                   if not StartedMoving then
@@ -1986,7 +2017,8 @@ begin
                       SelectionImage.Right := round(SelectionCanvas.Right * ReverseScale);
                       SelectionImage.Bottom := round(SelectionCanvas.Bottom * ReverseScale);
 
-                      SelectionImage.NormalizeRect;
+                      // Do NOT normalize
+                        //SelectionImage.NormalizeRect;
                     end;
                 end
               else
@@ -2020,7 +2052,8 @@ begin
                                 FinishSelection
                               else
                                 begin
-                                  Title.Caption := Length(DrawingPoints).ToString;
+                                  //Title.Caption := Length(DrawingPoints).ToString;
+
                                   // Move previous point
                                   for I := 0 to High(DrawingPoints) do begin
                                       ARect := TRect.Create(ScaleToCanvas(DrawingPoints[I]));
@@ -2731,6 +2764,9 @@ begin
           Polygon(APoints);
         end;
         12, 13: begin
+          ARect.NormalizeRect; // normalize
+
+
           SetLength(APoints, 7);
           Center := ARect.CenterPoint;
           for I := 0 to 6 do
@@ -2935,46 +2971,54 @@ begin
   UpdateSizing;
 end;
 
-procedure TMsPaint.SaveFileOptional(SaveAs: boolean);
+function TMsPaint.SaveFileOptional(SaveAs: boolean): boolean;
 var
   Ext: string;
   I: integer;
 begin
+  Result := false;
+
   // Finish editing
   FinishSelection();
 
   // Save
-  if FileSaved and (FileName <> '') and not SaveAs then
-    SaveFile
-  else
-    if SavePictureDialog1.Execute then
-      begin
-        FileName := SavePictureDialog1.FileName;
+  if FileSaved and (FileName <> '') and not SaveAs then begin
+    SaveFile;
 
-        // Extension
-        if ExtractFileExt(FileName) = '' then
-          begin
-            case SavePictureDialog1.FilterIndex of
-              1: Ext := 'png';
-              2: Ext := 'jpeg';
-              3: Ext := 'bmp';
-              4: Ext := 'gif';
-              5: Ext := 'ico';
-            end;
+    Result := true;
+    Exit;
+  end;
 
-            FileName := FileName + '.' + Ext;
-          end;
+  // Save As...
+  if not SavePictureDialog1.Execute then
+    Exit;
 
-        // Add to recents
-        I := RecentFiles.IndexOf(FileName);
-        if I <> -1 then
-          RecentFiles.Delete(I);
+  // Set
+  FileName := SavePictureDialog1.FileName;
 
-        RecentFiles.Add(FileName);
-
-        // Save
-        SaveFile;
+  // Extension
+  if ExtractFileExt(FileName) = '' then
+    begin
+      case SavePictureDialog1.FilterIndex of
+        1: Ext := 'png';
+        2: Ext := 'jpeg';
+        3: Ext := 'bmp';
+        4: Ext := 'gif';
+        5: Ext := 'ico';
       end;
+
+      FileName := FileName + '.' + Ext;
+    end;
+
+  // Add to recents
+  I := RecentFiles.IndexOf(FileName);
+  if I <> -1 then
+    RecentFiles.Delete(I);
+
+  RecentFiles.Add(FileName);
+
+  // Save
+  SaveFile;
 end;
 
 function TMsPaint.ScaleToCanvas(P: TPoint): TPoint;
@@ -3230,11 +3274,6 @@ begin
   InvisibleEdit.CopyToClipboard;
 end;
 
-procedure TMsPaint.SpeedButton33Click(Sender: TObject);
-begin
-  ShellRun('ms-paint://', true);
-end;
-
 procedure TMsPaint.SpeedButton3Click(Sender: TObject);
 begin
   if Fullscreen = nil then
@@ -3384,40 +3423,31 @@ end;
 procedure RotateBitmap90Degrees(var Bitmap: TBitmap);
 var
   TempBitmap: TBitmap;
+  SrcScanLine, DstScanLine: PByteArray;
   I, J: Integer;
+  PixelSize: Integer;
 begin
+  // Ensure the bitmap is in 24-bit format for simplicity
+  Bitmap.PixelFormat := pf24bit;
+
   TempBitmap := TBitmap.Create;
   try
+    TempBitmap.PixelFormat := pf24bit;
     TempBitmap.SetSize(Bitmap.Height, Bitmap.Width);
 
-    for I := 0 to Bitmap.Width - 1 do
+    PixelSize := 3; // 3 bytes per pixel for 24-bit format
+
+    for I := 0 to Bitmap.Height - 1 do
     begin
-      for J := 0 to Bitmap.Height - 1 do
+      SrcScanLine := Bitmap.ScanLine[I];
+      for J := 0 to Bitmap.Width - 1 do
       begin
-        TempBitmap.Canvas.Pixels[J, Bitmap.Width - I - 1] := Bitmap.Canvas.Pixels[I, J];
-      end;
-    end;
-
-    Bitmap.Assign(TempBitmap);
-  finally
-    TempBitmap.Free;
-  end;
-end;         
-
-procedure RotateBitmapNegative90Degrees(var Bitmap: TBitmap);
-var
-  TempBitmap: TBitmap;
-  I, J: Integer;
-begin
-  TempBitmap := TBitmap.Create;
-  try
-    TempBitmap.SetSize(Bitmap.Height, Bitmap.Width);
-
-    for I := 0 to Bitmap.Width - 1 do
-    begin
-      for J := 0 to Bitmap.Height - 1 do
-      begin
-        TempBitmap.Canvas.Pixels[Bitmap.Height - J - 1, I] := Bitmap.Canvas.Pixels[I, J];
+        DstScanLine := TempBitmap.ScanLine[J];
+        Move(
+          SrcScanLine[J * PixelSize],
+          DstScanLine[(Bitmap.Height - I - 1) * PixelSize],
+          PixelSize
+        );
       end;
     end;
 
@@ -3426,6 +3456,44 @@ begin
     TempBitmap.Free;
   end;
 end;
+
+procedure RotateBitmapNegative90Degrees(var Bitmap: TBitmap);
+var
+  TempBitmap: TBitmap;
+  SrcScanLine, DstScanLine: PByteArray;
+  I, J: Integer;
+  PixelSize: Integer;
+begin
+  // Ensure the bitmap is in 24-bit format for consistent pixel access
+  Bitmap.PixelFormat := pf24bit;
+
+  TempBitmap := TBitmap.Create;
+  try
+    TempBitmap.PixelFormat := pf24bit;
+    TempBitmap.SetSize(Bitmap.Height, Bitmap.Width);
+
+    PixelSize := 3; // 3 bytes per pixel for 24-bit format
+
+    for I := 0 to Bitmap.Width - 1 do
+    begin
+      for J := 0 to Bitmap.Height - 1 do
+      begin
+        SrcScanLine := Bitmap.ScanLine[J];
+        DstScanLine := TempBitmap.ScanLine[Bitmap.Width - I - 1];
+        Move(
+          SrcScanLine[I * PixelSize],
+          DstScanLine[J * PixelSize],
+          PixelSize
+        );
+      end;
+    end;
+
+    Bitmap.Assign(TempBitmap);
+  finally
+    TempBitmap.Free;
+  end;
+end;
+
 
 procedure TMsPaint.SpeedButton90Click(Sender: TObject);
 begin
@@ -3479,7 +3547,7 @@ begin
   case Tool of
     TToolType.Shape:
       case ShapeID of
-        1: Result := false;
+        1: Result := true;
         2: Result := {Length(DrawingPoints) = 2} false;
         6: Result := false;
         else Result := true;
@@ -3759,6 +3827,7 @@ begin
   Label10.Caption := ConvertUnit(Image.Width) + ' x ' + ConvertUnit(Image.Height) + GetUnit;
   Label3.Caption := (Scale * 100).ToString + '%';
   Title.Caption := FileDisplayName + ' - Paint';
+  Self.Caption := Title.Caption;
 
   // Canvas
   UpdateCanvas;
@@ -3832,6 +3901,23 @@ begin
   end;
 end;
 
+procedure TMsPaint.WMDropFiles(var Msg: TWMDropFiles);
+var
+  Catcher: TFileCatcher;
+begin
+  Catcher := TFileCatcher.Create(Msg.Drop);
+  if Catcher.FileCount < 1 then
+    Exit;
+
+  // Load
+  if not CheckSavedCanProceed or not TFile.Exists(Catcher.Files[0]) then
+    Exit;
+
+  FileName := Catcher.Files[0];
+  MsPaint.LoadFile;
+  MsPaint.UpdateSizing;
+end;
+
 procedure TMsPaint.SaveActionExecute(Sender: TObject);
 begin
   SaveFile;
@@ -3850,6 +3936,12 @@ end;
 procedure TMsPaint.Action4Execute(Sender: TObject);
 begin
   DoRedo;
+end;
+
+procedure TMsPaint.Action5Execute(Sender: TObject);
+begin
+  // Save as
+  MsPaint.SaveFileOptional(True);
 end;
 
 procedure TMsPaint.ActionClipboardFileExecute(Sender: TObject);

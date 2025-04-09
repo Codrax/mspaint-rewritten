@@ -27,6 +27,7 @@ interface
   // System
   procedure SystemBeep(BeepType: TBeepType);
   function GetWallpaperFileName(): string;
+  procedure OperationCompletedSuccessfully();
 
   // Audio
   procedure PlayResourceSound(ResourceName: string; Flags: cardinal);
@@ -72,6 +73,17 @@ begin
       Result := Wallpaper
         else
           Result := '';
+end;
+
+procedure OperationCompletedSuccessfully();
+resourcestring
+  ErrInf = '%S%S';
+var
+  Error: EOSError;
+begin
+  Error := EOSError.CreateResFmt(@ErrInf, [SysErrorMessage(0), '']);
+
+  raise Error at ReturnAddress;
 end;
 
 procedure PlayResourceSound(ResourceName: string; Flags: cardinal);
@@ -214,12 +226,19 @@ begin
   // Determine File Type
   P := TPicture.Create;
   BitMap := TBitMap.Create;
+  BitMap.PixelFormat := pf32bit;
+  Bitmap.TransparentMode := tmAuto;
   try
-    // Load
-    P.LoadFromFile(FileName);
+    BitMap.Canvas.Lock;
+    try
+      // Load
+      P.LoadFromFile(FileName);
 
-    // Assign
-    BitMap.Assign(P.Graphic);
+      // Assign
+      BitMap.Assign(P.Graphic);
+    finally
+      BitMap.Canvas.Unlock;
+    end;
   finally
     // Free Mem
     P.Free;
